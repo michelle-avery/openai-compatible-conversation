@@ -1,8 +1,8 @@
 {
-  "domain": "openai_compatible_conversation",
-  "name": "OpenAI Compatible Conversation",
+  "domain": "nothink_llm",
+  "name": "Nothink LLM",
   "after_dependencies": ["assist_pipeline", "intent"],
-  "codeowners": ["@michelle-avery"],
+  "codeowners": ["@duckida"],
   "config_flow": true,
   "dependencies": ["conversation"],
   "documentation": "https://github.com/michelle-avery/openai-compatible-conversation/blob/main/README.md",
