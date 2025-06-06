@@ -1,8 +1,8 @@
-"""Constants for the OpenAI Compatible Conversation integration."""
+"""Constants for the No<think> LLM integration."""
 
 import logging
 
-DOMAIN = "openai_compatible_conversation"
+DOMAIN = "ha-nothink-llm"
 LOGGER = logging.getLogger(__package__)
 
 CONF_RECOMMENDED = "recommended"

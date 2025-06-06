@@ -4,7 +4,7 @@ generate_image:
       required: true
       selector:
         config_entry:
-          integration: openai_compatible_conversation
+          integration: ha-nothink-llm
     prompt:
       required: true
       selector:

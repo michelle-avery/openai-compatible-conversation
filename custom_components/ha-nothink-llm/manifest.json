@@ -5,7 +5,7 @@
   "codeowners": ["@duckida"],
   "config_flow": true,
   "dependencies": ["conversation"],
-  "documentation": "https://github.com/michelle-avery/openai-compatible-conversation/blob/main/README.md",
+  "documentation": "https://github.com/michelle-avery/ha-nothink-llm/blob/main/README.md",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "requirements": ["openai>=1.61.0"],

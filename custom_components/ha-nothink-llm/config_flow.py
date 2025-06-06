@@ -1,4 +1,4 @@
-"""Config flow for OpenAI Compatible Conversation integration."""
+"""Config flow for No<think> LLM integration."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
     await hass.async_add_executor_job(client.with_options(timeout=10.0).models.list)
 
 
-class OpenAICompatibleConfigFlow(ConfigFlow, domain=DOMAIN):
+class HaNothinkLlmConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for OpenAI Compatible Conversation."""
 
     VERSION = 1
@@ -96,7 +96,7 @@ class OpenAICompatibleConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "unknown"
         else:
             return self.async_create_entry(
-                title="OpenAICompatible",
+                title="No<think> LLM",
                 data=user_input,
                 options=RECOMMENDED_OPTIONS,
             )
@@ -110,10 +110,10 @@ class OpenAICompatibleConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
         """Create the options flow."""
-        return OpenAICompatibleOptionsFlow(config_entry)
+        return HaNothinkLlmOptionsFlow(config_entry)
 
 
-class OpenAICompatibleOptionsFlow(OptionsFlow):
+class HaNothinkLlmOptionsFlow(OptionsFlow):
     """OpenAI Compatible config flow options handler."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
@@ -143,18 +143,18 @@ class OpenAICompatibleOptionsFlow(OptionsFlow):
                 CONF_LLM_HASS_API: user_input[CONF_LLM_HASS_API],
             }
 
-        schema = openai_compatible_config_option_schema(self.hass, options)
+        schema = ha_nothink_llm_config_option_schema(self.hass, options)
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema),
         )
 
 
-def openai_compatible_config_option_schema(
+def ha_nothink_llm_config_option_schema(
     hass: HomeAssistant,
     options: dict[str, Any] | MappingProxyType[str, Any],
 ) -> VolDictType:
-    """Return a schema for OpenAI Compatible completion options."""
+    """Return a schema for No<think> LLM completion options."""
     hass_apis: list[SelectOptionDict] = [
         SelectOptionDict(
             label="No control",
