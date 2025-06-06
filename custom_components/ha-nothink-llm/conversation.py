@@ -1,5 +1,6 @@
 """Conversation support for OpenAI Compatible APIs."""
 
+import re
 from collections.abc import Callable
 import json
 from typing import Any, Literal, cast
@@ -272,7 +273,10 @@ class OpenAICompatibleConversationEntity(
                 break
 
         intent_response = intent.IntentResponse(language=user_input.language)
-        intent_response.async_set_speech(response.content or "")
+        filtered_content = response.content or ""
+        if "<think>" in filtered_content and "</think>" in filtered_content:
+            filtered_content = re.sub(r"<think>.*?</think>", "", filtered_content, flags=re.DOTALL).strip()
+        intent_response.async_set_speech(filtered_content)
         return conversation.ConversationResult(
             response=intent_response, 
             conversation_id=chat_log.conversation_id,
