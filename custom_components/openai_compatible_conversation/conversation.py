@@ -14,7 +14,6 @@ from openai.types.chat import (
     ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
-from openai.types.chat.chat_completion_message_tool_call_param import Function
 from openai.types.shared_params import FunctionDefinition
 from voluptuous_openapi import convert
 
@@ -77,10 +76,10 @@ def _convert_message_to_param(
         tool_calls = [
             ChatCompletionMessageToolCallParam(
                 id=tool_call.id,
-                function=Function(
-                    arguments=tool_call.function.arguments,
-                    name=tool_call.function.name,
-                ),
+                function={
+                    "arguments": tool_call.function.arguments,
+                    "name": tool_call.function.name,
+                },
                 type=tool_call.type,
             )
             for tool_call in message.tool_calls
@@ -119,10 +118,10 @@ def _convert_content_to_param(
         tool_calls=[
             ChatCompletionMessageToolCallParam(
                 id=tool_call.id,
-                function=Function(
-                    arguments=json.dumps(tool_call.tool_args),
-                    name=tool_call.tool_name,
-                ),
+                function={
+                    "arguments": json.dumps(tool_call.tool_args),
+                    "name": tool_call.tool_name,
+                },
                 type="function",
             )
             for tool_call in content.tool_calls
