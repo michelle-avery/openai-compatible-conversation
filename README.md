@@ -1,6 +1,9 @@
 # 🤖 OpenAI Compatible Conversation (Community Revived - 2026 Edition)
 **Unleash Local & Cloud AI in your Smart Home.**  
 
+CODE OWNER WHERE I FORKED FROM 
+https://github.com/michelle-avery
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![Maintained](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/yourusername/openai-compatible-conversation/commits/main)
 
