@@ -39,11 +39,11 @@ from .const import (
     RECOMMENDED_MAX_TOKENS,
     RECOMMENDED_TEMPERATURE,
     RECOMMENDED_TOP_P,
+    CONF_ENABLE_TOOLS,
 )
 
-# Max number of back and forth with the LLM to generate a response
+# Hard limit on LLM tool iterations to prevent infinite API loops
 MAX_TOOL_ITERATIONS = 10
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -54,11 +54,10 @@ async def async_setup_entry(
     agent = OpenAICompatibleConversationEntity(config_entry)
     async_add_entities([agent])
 
-
 def _format_tool(
     tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None
 ) -> ChatCompletionToolParam:
-    """Format tool specification."""
+    """Format Home Assistant tool specifications into OpenAI function parameters."""
     tool_spec = FunctionDefinition(
         name=tool.name,
         parameters=convert(tool.parameters, custom_serializer=custom_serializer),
@@ -67,11 +66,10 @@ def _format_tool(
         tool_spec["description"] = tool.description
     return ChatCompletionToolParam(type="function", function=tool_spec)
 
-
 def _convert_message_to_param(
     message: ChatCompletionMessage,
 ) -> ChatCompletionMessageParam:
-    """Convert from class to TypedDict."""
+    """Convert an OpenAI message object to a standard parameter dictionary."""
     tool_calls: list[ChatCompletionMessageToolCallParam] = []
     if message.tool_calls:
         tool_calls = [
@@ -93,11 +91,10 @@ def _convert_message_to_param(
         param["tool_calls"] = tool_calls
     return param
 
-
 def _convert_content_to_param(
     content: conversation.Content,
 ) -> ChatCompletionMessageParam:
-    """Convert any native chat message for this agent to the native format."""
+    """Convert Home Assistant native chat content into OpenAI message format."""
     if content.role == "tool_result":
         assert type(content) is conversation.ToolResultContent
         return ChatCompletionToolMessageParam(
@@ -105,13 +102,12 @@ def _convert_content_to_param(
             tool_call_id=content.tool_call_id,
             content=json.dumps(content.tool_result),
         )
-    if content.role != "assistant" or not content.tool_calls:  # type: ignore[union-attr]
+    if content.role != "assistant" or not content.tool_calls:
         return cast(
             ChatCompletionMessageParam,
-            {"role": content.role, "content": content.content},  # type: ignore[union-attr]
+            {"role": content.role, "content": content.content},
         )
 
-    # Handle the Assistant content including tool calls.
     assert type(content) is conversation.AssistantContent
     return ChatCompletionAssistantMessageParam(
         role="assistant",
@@ -129,56 +125,56 @@ def _convert_content_to_param(
         ],
     )
 
-
 class OpenAICompatibleConversationEntity(
     conversation.ConversationEntity, conversation.AbstractConversationAgent
 ):
-    """OpenAI Compatible conversation agent."""
+    """The central conversation agent for OpenAI-compatible APIs."""
 
     _attr_has_entity_name = True
     _attr_name = None
 
     def __init__(self, entry: OpenAICompatibleConfigEntry) -> None:
-        """Initialize the agent."""
+        """Initialize the agent with device registry info."""
         self.entry = entry
         self._attr_unique_id = entry.entry_id
         self._attr_device_info = dr.DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
             manufacturer="OpenAI Compatible",
-            model="OpenAI Compatible",
+            model="Local & Cloud LLM Agent",
             entry_type=dr.DeviceEntryType.SERVICE,
         )
         if self.entry.options.get(CONF_LLM_HASS_API):
-            self._attr_supported_features = (
-                conversation.ConversationEntityFeature.CONTROL
-            )
+            self._attr_supported_features = conversation.ConversationEntityFeature.CONTROL
 
     @property
     def supported_languages(self) -> list[str] | Literal["*"]:
-        """Return a list of supported languages."""
         return MATCH_ALL
 
     async def async_added_to_hass(self) -> None:
-        """When entity is added to Home Assistant."""
+        """Register the pipeline engine when added."""
         await super().async_added_to_hass()
-        assist_pipeline.async_migrate_engine(
-            self.hass, "conversation", self.entry.entry_id, self.entity_id
-        )
+        
+        # FIX: Check if the HA version still uses async_migrate_engine before calling it
+        if hasattr(assist_pipeline, "async_migrate_engine"):
+            assist_pipeline.async_migrate_engine(
+                self.hass, "conversation", self.entry.entry_id, self.entity_id
+            )
+            
         conversation.async_set_agent(self.hass, self.entry, self)
         self.entry.async_on_unload(
             self.entry.add_update_listener(self._async_entry_update_listener)
         )
 
     async def async_will_remove_from_hass(self) -> None:
-        """When entity will be removed from Home Assistant."""
+        """Cleanup upon removal."""
         conversation.async_unset_agent(self.hass, self.entry)
         await super().async_will_remove_from_hass()
 
     async def async_process(
         self, user_input: conversation.ConversationInput
     ) -> conversation.ConversationResult:
-        """Process a sentence."""
+        """Process incoming sentences from the user."""
         with (
             chat_session.async_get_chat_session(
                 self.hass, user_input.conversation_id
@@ -192,7 +188,7 @@ class OpenAICompatibleConversationEntity(
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Call the API."""
+        """Execute the API call with Live Text Streaming and safe tool buffering."""
         assert user_input.agent_id
         options = self.entry.options
 
@@ -206,73 +202,102 @@ class OpenAICompatibleConversationEntity(
         except conversation.ConverseError as err:
             return err.as_conversation_result()
 
+        enable_tools = options.get(CONF_ENABLE_TOOLS, True)
         tools: list[ChatCompletionToolParam] | None = None
-        if chat_log.llm_api:
+        
+        if enable_tools and chat_log.llm_api:
             tools = [
                 _format_tool(tool, chat_log.llm_api.custom_serializer)
                 for tool in chat_log.llm_api.tools
             ]
+        elif not enable_tools:
+            LOGGER.debug("Home Assistant Tools disabled for this request via config options.")
         
         messages = [_convert_content_to_param(content) for content in chat_log.content]
-
         client = self.entry.runtime_data
 
-        # To prevent infinite loops, we limit the number of iterations
-        for _iteration in range(MAX_TOOL_ITERATIONS):
-
+        for iteration in range(MAX_TOOL_ITERATIONS):
             model_args = {
                 "model": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
                 "messages": messages,
-                "tools": tools or NOT_GIVEN,
-                "max_tokens": options.get(
-                    CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS
-                ),
+                "max_tokens": options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS),
                 "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                 "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
                 "user": chat_log.conversation_id,
+                "stream": True, # Enabled live text streaming
             }
+            
+            if tools:
+                model_args["tools"] = tools
+            
             try:
-                result = await client.chat.completions.create(**model_args)
+                stream = await client.chat.completions.create(**model_args)
             except openai.RateLimitError as err:
-                 LOGGER.error("Rate limited by OpenAI: %s", err)
-                 raise HomeAssistantError("Rate limited or insufficient funds") from err
+                 LOGGER.error("Rate limited by API Provider: %s", err)
+                 raise HomeAssistantError("Rate limited or insufficient funds. Check your API provider.") from err
             except openai.OpenAIError as err:
-                LOGGER.error("Error talking to OpenAI: %s", err)
-                raise HomeAssistantError("Error talking to OpenAI") from err
+                LOGGER.error("Communication error with API Provider: %s", err)
+                raise HomeAssistantError("Failed to communicate with the LLM provider.") from err
 
-            LOGGER.debug("Response %s", result)
-            response = result.choices[0].message
-            messages.append(_convert_message_to_param(response))
+            accumulated_content = ""
+            tool_calls_buffer = {}
 
-            tool_calls: list[llm.ToolInput] | None = None
-            if response.tool_calls:
-                tool_calls = [
-                    llm.ToolInput(
-                        id=tool_call.id,
-                        tool_name=tool_call.function.name,
-                        tool_args=json.loads(tool_call.function.arguments),
-                    )
-                    for tool_call in response.tool_calls
-                ]
+            async def _process_stream():
+                nonlocal accumulated_content, tool_calls_buffer
+                async for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    
+                    if delta.content:
+                        accumulated_content += delta.content
+                        yield conversation.AssistantContentDeltaDict(role="assistant", content=delta.content)
+                        
+                    if delta.tool_calls:
+                        for tool_call in delta.tool_calls:
+                            idx = tool_call.index
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    "id": tool_call.id,
+                                    "name": tool_call.function.name if tool_call.function else "",
+                                    "arguments": tool_call.function.arguments if tool_call.function else ""
+                                }
+                            else:
+                                if tool_call.function and tool_call.function.arguments:
+                                    tool_calls_buffer[idx]["arguments"] += tool_call.function.arguments
 
             messages.extend(
                 [
-                    _convert_content_to_param(tool_response)
-                    async for tool_response in chat_log.async_add_assistant_content(
-                        conversation.AssistantContent(
-                            agent_id=user_input.agent_id,
-                            content=response.content or "",
-                            tool_calls=tool_calls,
-                        )
+                    _convert_content_to_param(content)
+                    async for content in chat_log.async_add_delta_content_stream(
+                        user_input.agent_id, _process_stream()
                     )
                 ]
             )
 
+            tool_calls = None
+            if tool_calls_buffer:
+                tool_calls = []
+                for idx, tc in tool_calls_buffer.items():
+                    try:
+                        tool_calls.append(
+                            llm.ToolInput(
+                                id=tc["id"],
+                                tool_name=tc["name"],
+                                tool_args=json.loads(tc["arguments"]),
+                            )
+                        )
+                    except json.JSONDecodeError:
+                        LOGGER.error("Failed to parse tool arguments from stream: %s", tc["arguments"])
+
             if not tool_calls:
                 break
+                
+            if iteration == MAX_TOOL_ITERATIONS - 1:
+                LOGGER.warning("LLM reached max tool iterations. Forced stop.")
 
         intent_response = intent.IntentResponse(language=user_input.language)
-        intent_response.async_set_speech(response.content or "")
+        intent_response.async_set_speech(accumulated_content or "")
         return conversation.ConversationResult(
             response=intent_response, 
             conversation_id=chat_log.conversation_id,
@@ -282,6 +307,5 @@ class OpenAICompatibleConversationEntity(
     async def _async_entry_update_listener(
         self, hass: HomeAssistant, entry: ConfigEntry
     ) -> None:
-        """Handle options update."""
-        # Reload as we update device info + entity name + supported features
+        """Handle dynamic options updates from the UI."""
         await hass.config_entries.async_reload(entry.entry_id)
