@@ -1,16 +1,47 @@
+# 🤖 OpenAI Compatible Conversation (Community Revived - 2026 Edition)
+**Unleash Local & Cloud AI in your Smart Home.**  
 
-> [!NOTE]
-> A note from the maintainer: This project was initially created as a fork of Home Assistant's built-in OpenAI Conversation Agent that simply had the added ability to change the base URL. It was intended to be a point-in-time snapshot becuase I created it as the first step of another project, and I was surprised it didn't already exist. As Home Assistant implemented new features for their own OpenAI Conversation agent, it was trivial to integrate them, because the codebase was practically identical. Unfortunately, with the recent move to the Responses API, which many "OpenAI-compatible" APIs do not support, this project has diverged from Home Assistant's built-in OpenAI Conversation Agent, and that requires additional development and testing time. I personally cannot support this, as I don't actually use this integration, which makes ensuring its quality challenging. I have developed and personally use [Custom Conversation](https://github.com/michelle-avery/custom-conversation), which you may want to check out - it may be overkill for your needs, as it's intended for those who want to control and experiment with various aspects of LLM conversation agents, but it does support multiple providers (including OpenAI, Gemini, Mistral, and OpenRouter), as well as streaming, and the ability to fallback to a secondary provider once the primary provider has exhausted its quota. I'm also happy to add additional providers there, as the underlying code is designed to be extensible. If anyone is intersted in picking up this project and maintaining it while adding support for the quirks of different providers, please reach out to me, and I'll be happy to transfer ownership.
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
+[![Maintained](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/yourusername/openai-compatible-conversation/commits/main)
 
-# OpenAI Compatible Conversation
-This project started off as a copy of Home Assistant's built-in OpenAI Conversation Agent, with support for changing the base URL. Only the minimal changes to make this a standalone custom component capable of supporting a different base URL to make it compatible with other services offering an OpenAI-compatible API were  made.
+Bring the power of advanced Language Models to Home Assistant. This integration doesn't just chat—it can physically control your smart home devices and stream responses in real-time.
 
-As development on Home Assistant's built-in OpenAI Conversation Agent has progressed, more features have been added that are OpenAI specific and less compatible with other providers that offer an OpenAI compatible API. Due to this, this project does have the following limitations:
+Because it uses the universal OpenAI API standard, you aren't locked into a single provider. You can point this integration at **OpenRouter**, **LM Studio**, **LocalAI**, **Groq**, **Ollama**, or any other compatible endpoint!
 
-* OpenAI's reasoning parameters are not supported.
-* Responses are not streamed to the chat log.
-* The project currently continues to use the `max_tokens` parameter as opposed to the newer `max_completion_tokens` parameter for backwards compatibility.
+---
 
-## Note about changing the model
+## 🌟 The "Next Level" Updates
+This project was originally created by Michelle Avery as a simple fork of the native HA OpenAI agent. As Home Assistant's native agent became strictly tailored to OpenAI's proprietary features, this integration became vital for users who wanted to use alternative providers. 
 
-If you're not using OpenAI models, then you need to change the default values that this integration will send to the API. To make that happen, click on "configure" on this integration and de-select the "recommended" toggle and click on "send". A placeholder to change the default model will appear and you'll be able to change it to any model you want.
+This **Community Revived** version supercharges the original vision with modern features:
+* **Live Text Streaming with Tool Buffering:** Responses type out on your screen instantly. Includes a custom background buffer that safely catches and executes fragmented JSON tool calls without breaking the chat UI.
+* **Dynamic Model Sync:** No more guessing model names! The integration now automatically connects to your provider (like OpenRouter or LM Studio) and builds a searchable dropdown of every available model.
+* **The "Safe Chat" Tool Toggle:** Easily sever the LLM's connection to your smart home devices with a single UI switch. Perfect for using fast, lightweight models for general chatting without risking them hallucinating a command.
+* **Infinite Loop Protection:** A built-in killswitch prevents models from getting stuck in endless tool-calling loops, saving your API credits and system resources.
+* **Version Compatibility:** Updated to support modern Home Assistant `assist_pipeline` methods and `AssistantContentDeltaDict` streaming.
+
+---
+
+## ✨ Core Features
+* **Smart Home Control:** Fully integrated with Home Assistant's `llm_hass_api`. The AI can turn off lights, check sensor statuses, and run scripts automatically based on your natural language requests.
+* **Custom Base URLs:** Have a local model running on an old gaming PC? Just change the `Base URL` in the config flow to point to your local IP.
+* **Legacy Parameter Support:** Continues to use `max_tokens` instead of the newer `max_completion_tokens` to ensure maximum compatibility across older or open-source local models.
+
+---
+
+## 🚀 Installation & Setup
+
+1. Copy the `openai_compatible_conversation` folder into your `custom_components` directory.
+2. Restart Home Assistant.
+3. Go to **Settings > Devices & Services > Add Integration**.
+4. Search for **OpenAI Compatible Conversation**.
+5. Enter your **API Key** and your target **Base URL** (defaults to `https://api.openai.com/v1`).
+6. Go to the integration's **Configure** menu. Uncheck "Recommended" and click submit to reveal the advanced options, including the dynamic model dropdown!
+
+---
+
+## ⚠️ A Note on Open-Source Models & Tools
+When using this integration to control your house, you must use a model smart enough to understand Home Assistant's internal API. 
+* **Tiny models (2B - 7B parameters)** may struggle and output raw formatting instead of acting on the commands. 
+* **Recommended Free Models:** `meta-llama/llama-3.1-8b-instruct` or any 20B+ model. 
+* **Recommended Paid Models:** `openai/gpt-4o-mini` or `anthropic/claude-3-haiku`.
