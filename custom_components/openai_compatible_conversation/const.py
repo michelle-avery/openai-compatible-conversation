@@ -17,3 +17,6 @@ CONF_TEMPERATURE = "temperature"
 RECOMMENDED_TEMPERATURE = 1.0
 CONF_BASE_URL = "base_url"
 RECOMMENDED_BASE_URL = "https://api.openai.com/v1"
+
+# NEW: The safe chat tool toggle
+CONF_ENABLE_TOOLS = "enable_tools"
