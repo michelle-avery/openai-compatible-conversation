@@ -42,8 +42,7 @@ from .const import (
     CONF_ENABLE_TOOLS,
 )
 
-# Hard limit on LLM tool iterations to prevent infinite API loops
-MAX_TOOL_ITERATIONS = 10
+MAX_TOOL_ITERATIONS = 99
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -102,7 +101,7 @@ def _convert_content_to_param(
             tool_call_id=content.tool_call_id,
             content=json.dumps(content.tool_result),
         )
-    if content.role != "assistant" or not content.tool_calls:
+    if content.role != "assistant" or not getattr(content, "tool_calls", None):
         return cast(
             ChatCompletionMessageParam,
             {"role": content.role, "content": content.content},
@@ -155,7 +154,6 @@ class OpenAICompatibleConversationEntity(
         """Register the pipeline engine when added."""
         await super().async_added_to_hass()
         
-        # FIX: Check if the HA version still uses async_migrate_engine before calling it
         if hasattr(assist_pipeline, "async_migrate_engine"):
             assist_pipeline.async_migrate_engine(
                 self.hass, "conversation", self.entry.entry_id, self.entity_id
@@ -188,19 +186,29 @@ class OpenAICompatibleConversationEntity(
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Execute the API call with Live Text Streaming and safe tool buffering."""
+        """Execute the API call and let HA handle the tool execution loops."""
         assert user_input.agent_id
         options = self.entry.options
 
         try:
-            await chat_log.async_update_llm_data(
-                DOMAIN,
-                user_input,
-                options.get(CONF_LLM_HASS_API),
-                options.get(CONF_PROMPT),
+            llm_context = llm.LLMContext(
+                platform=DOMAIN,
+                context=user_input.context,
+                language=user_input.language,
+                assistant=conversation.DOMAIN,
+                device_id=getattr(user_input, "device_id", None),
             )
-        except conversation.ConverseError as err:
-            return err.as_conversation_result()
+            
+            if options.get(CONF_LLM_HASS_API):
+                chat_log.llm_api = await llm.async_get_api(
+                    self.hass, 
+                    options[CONF_LLM_HASS_API], 
+                    llm_context
+                )
+            if options.get(CONF_PROMPT):
+                chat_log.system_prompt = options[CONF_PROMPT]
+        except Exception as err:
+            LOGGER.error("Failed to set LLM context: %s", err)
 
         enable_tools = options.get(CONF_ENABLE_TOOLS, True)
         tools: list[ChatCompletionToolParam] | None = None
@@ -210,8 +218,6 @@ class OpenAICompatibleConversationEntity(
                 _format_tool(tool, chat_log.llm_api.custom_serializer)
                 for tool in chat_log.llm_api.tools
             ]
-        elif not enable_tools:
-            LOGGER.debug("Home Assistant Tools disabled for this request via config options.")
         
         messages = [_convert_content_to_param(content) for content in chat_log.content]
         client = self.entry.runtime_data
@@ -224,7 +230,7 @@ class OpenAICompatibleConversationEntity(
                 "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                 "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
                 "user": chat_log.conversation_id,
-                "stream": True, # Enabled live text streaming
+                "stream": True, 
             }
             
             if tools:
@@ -233,10 +239,8 @@ class OpenAICompatibleConversationEntity(
             try:
                 stream = await client.chat.completions.create(**model_args)
             except openai.RateLimitError as err:
-                 LOGGER.error("Rate limited by API Provider: %s", err)
                  raise HomeAssistantError("Rate limited or insufficient funds. Check your API provider.") from err
             except openai.OpenAIError as err:
-                LOGGER.error("Communication error with API Provider: %s", err)
                 raise HomeAssistantError("Failed to communicate with the LLM provider.") from err
 
             accumulated_content = ""
@@ -244,60 +248,76 @@ class OpenAICompatibleConversationEntity(
 
             async def _process_stream():
                 nonlocal accumulated_content, tool_calls_buffer
-                async for chunk in stream:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-                    
-                    if delta.content:
-                        accumulated_content += delta.content
-                        yield conversation.AssistantContentDeltaDict(role="assistant", content=delta.content)
+                try:
+                    async for chunk in stream:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
                         
-                    if delta.tool_calls:
-                        for tool_call in delta.tool_calls:
-                            idx = tool_call.index
-                            if idx not in tool_calls_buffer:
-                                tool_calls_buffer[idx] = {
-                                    "id": tool_call.id,
-                                    "name": tool_call.function.name if tool_call.function else "",
-                                    "arguments": tool_call.function.arguments if tool_call.function else ""
-                                }
-                            else:
-                                if tool_call.function and tool_call.function.arguments:
-                                    tool_calls_buffer[idx]["arguments"] += tool_call.function.arguments
+                        if delta.content:
+                            accumulated_content += delta.content
+                            # FIX: Use the strict AssistantContentDeltaDict to stop HA from overwriting the memory
+                            yield conversation.AssistantContentDeltaDict(
+                                role="assistant", 
+                                content=delta.content
+                            )                        
+                        if delta.tool_calls:
+                            for tool_call in delta.tool_calls:
+                                idx = tool_call.index
+                                if idx not in tool_calls_buffer:
+                                    tool_calls_buffer[idx] = {
+                                        "id": tool_call.id,
+                                        "name": tool_call.function.name if tool_call.function else "",
+                                        "arguments": tool_call.function.arguments if tool_call.function else ""
+                                    }
+                                else:
+                                    if tool_call.function and tool_call.function.arguments:
+                                        tool_calls_buffer[idx]["arguments"] += tool_call.function.arguments
+                except openai.APIError as stream_err:
+                    LOGGER.error("Stream error: %s", stream_err)
 
-            messages.extend(
-                [
-                    _convert_content_to_param(content)
-                    async for content in chat_log.async_add_delta_content_stream(
-                        user_input.agent_id, _process_stream()
-                    )
-                ]
-            )
-
-            tool_calls = None
-            if tool_calls_buffer:
-                tool_calls = []
-                for idx, tc in tool_calls_buffer.items():
-                    try:
-                        tool_calls.append(
-                            llm.ToolInput(
-                                id=tc["id"],
-                                tool_name=tc["name"],
-                                tool_args=json.loads(tc["arguments"]),
+                if tool_calls_buffer:
+                    parsed_tool_calls = []
+                    for idx, tc in tool_calls_buffer.items():
+                        try:
+                            parsed_tool_calls.append(
+                                llm.ToolInput(
+                                    id=tc["id"],
+                                    tool_name=tc["name"],
+                                    tool_args=json.loads(tc["arguments"]),
+                                )
                             )
+                        except json.JSONDecodeError:
+                            LOGGER.error("Failed to parse tool arguments")
+                    
+                    if parsed_tool_calls:
+                        # FIX: Format tool calls properly for HA 2026.1
+                        yield conversation.AssistantContentDeltaDict(
+                            role="assistant", 
+                            tool_calls=parsed_tool_calls
                         )
-                    except json.JSONDecodeError:
-                        LOGGER.error("Failed to parse tool arguments from stream: %s", tc["arguments"])
 
-            if not tool_calls:
+            new_contents = [
+                content
+                async for content in chat_log.async_add_delta_content_stream(
+                    user_input.agent_id, _process_stream()
+                )
+            ]
+            
+            messages.extend([_convert_content_to_param(content) for content in new_contents])
+
+            if not getattr(chat_log, "unresponded_tool_results", False):
                 break
                 
             if iteration == MAX_TOOL_ITERATIONS - 1:
                 LOGGER.warning("LLM reached max tool iterations. Forced stop.")
 
         intent_response = intent.IntentResponse(language=user_input.language)
-        intent_response.async_set_speech(accumulated_content or "")
+        
+        # FIX: Explicitly push our accumulated text to the screen to bypass any memory glitches
+        if accumulated_content.strip():
+            intent_response.async_set_speech(accumulated_content.strip())
+        
         return conversation.ConversationResult(
             response=intent_response, 
             conversation_id=chat_log.conversation_id,
