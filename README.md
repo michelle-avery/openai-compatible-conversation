@@ -48,3 +48,15 @@ When using this integration to control your house, you must use a model smart en
 * **Tiny models (2B - 7B parameters)** may struggle and output raw formatting instead of acting on the commands. 
 * **Recommended Free Models:** `meta-llama/llama-3.1-8b-instruct` or any 20B+ model. 
 * **Recommended Paid Models:** `openai/gpt-4o-mini` or `anthropic/claude-3-haiku`.
+
+---
+
+## Intefrace
+Selector interface, will auto populate from whatever AI you are using, here i use openrouter
+<img width="753" height="905" alt="Animation" src="https://github.com/user-attachments/assets/fbddb5fc-c8d0-4c38-93f6-d7fbaeefdf08" />
+
+--- 
+
+## Question
+Based on my system (hp t630 proxmox hass) it went from 50s to ~10 seconds in responses, so high end pc's it will be nearly instant
+<img width="753" height="905" alt="question" src="https://github.com/user-attachments/assets/ec07a6bb-1576-4367-a661-960c59f484fa" />
